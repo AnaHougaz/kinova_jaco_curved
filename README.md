@@ -8,7 +8,7 @@
 | `s` | Versão *Service* (existe também a versão *Assistive*) |
 | `300` | Gripper de 3 dedos |
 
-### Estamos usando o ```j2s6s300```
+### Estamos usando o ```j2n6s300```
 
 ### Pose HOME ```[0.0, 2.9, 1.3, -2.07, 1.4, 0.0]```
 
