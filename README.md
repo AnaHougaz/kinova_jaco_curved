@@ -1,266 +1,121 @@
-# Projeto Jaco — Validação Cinemática e Simulação
+# Projeto Jaco — Validação no Hardware Real (`hardware-validation`)
 
-Este repositório contém a implementação e a validação da **cinemática direta (FK)** e da **cinemática inversa (IK)** do robô **Kinova Jaco Gen2**, tanto em ambiente simulado (**Gazebo**) quanto no **hardware real** do laboratório.
+> 🌿 **Você está na branch `hardware-validation`.** 
+> Esta branch contém os scripts Python adaptados especificamente para ler os dados e enviar comandos ao **robô físico** do laboratório (`j2n6s300`).
+> 
+> 🔗 Para a simulação no Gazebo, acesse a branch [**develop**](https://github.com/AnaHougaz/kinova_jaco_curved/tree/develop).
 
-## Modelo do Robô
+Este repositório contém a implementação e a validação da **cinemática direta (FK)** e **inversa (IK)** do robô **Kinova Jaco Gen2** com punho curvo (`j2n6s300`).
 
-O modelo utilizado neste projeto é o **`j2n6s300`**, correspondente ao Jaco Gen2 com punho não esférico (*Curved Wrist*) e gripper de três dedos.
+## Resultados Obtidos
 
-| Trecho | Significado |
-|---|---|
-| `j2` | Jaco, geração 2 (Gen2) |
-| `s` ou `n` | Punho **esférico (`s`)** ou **não esférico (`n`)** |
-| `6` | 6 graus de liberdade |
-| `s` | Versão **Service** (existe também a versão **Assistive**) |
-| `300` | Gripper de 3 dedos |
-
-> **Modelo utilizado:** `j2n6s300` — Punho Não Esférico (*Curved Wrist*)
-
----
-
-## Estrutura do Projeto
-
-```text
-.
-├── src/
-│   ├── parameters.py       # Parâmetros D1..D6, e2, aa, d4b..d6b
-│   └── dh_classic.py       # Matriz DH e conversão de ângulos
-│
-├── tests/
-│   ├── fk/
-│   │   ├── fk_urdf_vs_tf.py
-│   │   └── fk_dh_vs_tf.py
-│   │
-│   └── ik/
-│       ├── ik_kdl_vs_fk.py
-│       └── ik_real_test.py
-│
-└── jaco_sim/               # Pacote ROS: launch, URDF e câmera
-```
-
-### Descrição dos principais arquivos
-
-- **`src/parameters.py`**  
-  Contém os parâmetros geométricos utilizados nos cálculos cinemáticos, como `D1..D6`, `e2`, `aa` e `d4b..d6b`.
-
-- **`src/dh_classic.py`**  
-  Implementa a matriz de transformação baseada na convenção DH clássica e as conversões de ângulos utilizadas pelo modelo do Jaco.
-
-- **`tests/fk/`**  
-  Contém os testes de validação da cinemática direta, comparando os resultados do modelo matemático com as transformações obtidas no ROS/TF.
-
-- **`tests/ik/`**  
-  Contém os testes de cinemática inversa, incluindo a validação utilizando o KDL e os testes realizados no hardware real.
-
-- **`jaco_sim/`**  
-  Pacote ROS utilizado na simulação do Jaco no Gazebo, incluindo o modelo URDF e a integração com a câmera RealSense.
+| Ambiente | Modelo | Validação | Erro de Posição | Erro de Orientação | Link |
+|---|---|---|---|---|---|
+| **Hardware Real** | `j2n6s300` | FK | **0,076 mm** | **0,0000°** | [Código](tests/fk/fk_dh_vs_tf.py) |
+| **Hardware Real** | `j2n6s300` | IK (Laço Fechado) | **0,076 mm** | — | [Código](tests/ik/ik_real_test.py) |
+| [Simulação](https://github.com/AnaHougaz/kinova_jaco_curved/tree/develop) | `j2n6s300` | FK / IK | 0,070 mm / 0,067 mm | 0,0009° | [Branch develop](https://github.com/AnaHougaz/kinova_jaco_curved/tree/develop) |
+| [Simulação](https://github.com/AnaHougaz/kinova_jaco) | `j2s6s300` | FK / IK | 0,085 mm / 0,070 mm | 0,010° | [Repo antigo](https://github.com/AnaHougaz/kinova_jaco) |
 
 ---
 
-# Resultados
+## 🖥️ Rotina de Execução no Laboratório (Hardware Real)
 
-A validação foi realizada em dois ambientes:
+**Atenção:** No laboratório, o ROS roda **nativamente** (sem Docker) no Ubuntu 20.04. O modelo físico é o `j2n6s300`.
 
-1. **Simulação:** Gazebo com ROS Noetic.
-2. **Hardware real:** Kinova Jaco Gen2 disponível no laboratório.
-
-| Ambiente | Modelo | Validação | Resultado |
-|---|---|---|---|
-| Hardware real | `j2n6s300` | FK | Erro de **0,076 mm** |
-| Hardware real | `j2n6s300` | FK — orientação | **0,0000°** |
-| Hardware real | `j2n6s300` | IK + validação via FK | Erro de **0,076 mm** |
-
----
-
-# 1. Simulação — Gazebo
-
-A simulação foi construída em um **container Docker com ROS Noetic**.
-
-O pacote `jaco_sim` unifica o modelo do robô e a integração com a câmera **RealSense**.
-
-## 1.1. Compilar o Workspace
-
-No container:
-
+### 1. Preparar o Robô (Primeira vez)
+Ligue o robô e conecte o cabo USB. Para dar permissão de acesso ao ROS sem precisar de `sudo`:
 ```bash
-cd /root/catkin_ws
-catkin_make
-source devel/setup.bash
-```
-
-## 1.2. Rodar o Gazebo com Câmera
-
-```bash
-roslaunch jaco_sim jaco_realsense.launch
-```
-
-A câmera publica os tópicos no namespace:
-
-```text
-/camera/
-```
-
-## 1.3. Visualizar os Tópicos da Câmera
-
-Em um segundo terminal:
-
-```bash
-source /opt/ros/noetic/setup.bash
-source /root/catkin_ws/devel/setup.bash
-
-rostopic list | grep camera
-```
-
-Para visualizar as imagens:
-
-```bash
-rqt_image_view
-```
-
-Na janela do `rqt_image_view`, selecione o tópico:
-
-```text
-/camera/color/image_raw
-```
-
----
-
-# 2. Validação no Robô Real
-
-Esta seção documenta a configuração realizada no computador do laboratório (**`lar-desktop-jaco`**) para conectar o hardware e validar a cinemática do Jaco.
-
-## 2.1. Permissão USB — Regra Udev
-
-Para permitir que o ROS acesse o robô via USB sem a necessidade de executar os comandos como `sudo`, foi criada uma regra `udev`.
-
-```bash
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="22cd", MODE="0666"' \
-  | sudo tee /etc/udev/rules.d/99-kinova.rules
-
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="22cd", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kinova.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
----
-
-## 2.2. Configuração da Rede ROS
-
-No computador do laboratório, o arquivo `~/.bashrc` foi configurado para utilizar o ROS Master local:
-
+### 2. Configurar a Rede do ROS
+O computador do laboratório deve reconhecer o próprio ROS como mestre.
 ```bash
 export ROS_MASTER_URI=http://localhost:11311
 export ROS_HOSTNAME=192.168.13.100
 ```
 
-Após alterar o arquivo, carregue as configurações:
-
-```bash
-source ~/.bashrc
-```
-
----
-
-## 2.3. Iniciar o Driver do Robô Real
-
-Com o robô ligado e o cabo USB conectado:
-
+### 3. Iniciar o Driver do Robô (Terminal 1)
 ```bash
 source ~/jaco_ws/devel/setup.bash
-
-roslaunch kinova_bringup kinova_robot.launch \
-  kinova_robotType:=j2n6s300
+roslaunch kinova_bringup kinova_robot.launch kinova_robotType:=j2n6s300
 ```
+*(Deixe este terminal aberto. O robô dará um sinal de vida e os dedos podem se mover).*
 
----
-
-## 2.4. Verificar os Tópicos
-
-Em outro terminal:
-
+### 4. Verificar o Tópico (Terminal 2)
+Abra outro terminal e confirme que o tópico das juntas está ativo.
 ```bash
 source ~/jaco_ws/devel/setup.bash
-
 rostopic list | grep -i joint
 ```
+O tópico correto é: `/j2n6s300_driver/out/joint_state`.
 
-O tópico de estado utilizado pelo driver é:
+### 5. Rodar os Testes (Terminal 3)
+Navegue até esta pasta do repositório e rode os scripts:
 
-```text
-/j2n6s300_driver/out/joint_state
-```
-
-Esse tópico fornece os estados das juntas utilizados pelos scripts de validação.
-
----
-
-# 3. Testes de Cinemática
-
-Os scripts localizados em `tests/` foram desenvolvidos para validar os modelos de FK e IK.
-
-## 3.1. Cinemática Direta — FK
-
-A validação da FK compara o resultado obtido a partir da implementação da **cinemática baseada em DH** com as transformações fornecidas pelo **TF do ROS**.
-
-No computador do laboratório:
-
+**Validação da FK (Cinemática Direta):**
 ```bash
 source /opt/ros/noetic/setup.bash
 source ~/jaco_ws/devel/setup.bash
-
 python3 tests/fk/fk_dh_vs_tf.py
 ```
 
-O script utiliza os estados das juntas publicados pelo driver do Jaco e compara a posição e orientação calculadas pelo modelo DH com as informações do TF.
+**Validação da IK (Cinemática Inversa):**
+```bash
+python3 tests/ik/ik_real_test.py
+```
+⚠️ **Atenção:** O `ik_real_test.py` move o robô físico. Tenha certeza que o professor ou técnico está com o botão de emergência em mãos.
 
 ---
 
-## 3.2. Cinemática Inversa — IK
+## 💻 Como rodar a Simulação (Notebook / Docker)
 
-A validação da IK é realizada a partir do ```envio de uma trajetória ao robô``` e posterior verificação da posição alcançada utilizando a FK.
+Caso você queira reproduzir os testes da branch `develop` no seu computador pessoal, os comandos são:
 
 ```bash
-source /opt/ros/noetic/setup.bash
-source ~/jaco_ws/devel/setup.bash
+# No host (fora do Docker)
+xhost +local:docker
+docker start -ai kinova_hardware
 
-python3 tests/ik/ik_real_test.py
+# Dentro do container
+cd /root/catkin_ws
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+roslaunch jaco_sim jaco_realsense.launch
 ```
 
-O resultado é validado comparando a posição desejada com a posição obtida a partir da configuração final das juntas.
+---
 
-
-# 4. Resumo do Fluxo de Validação
+## Estrutura do Código
 
 ```text
-                  Kinova Jaco Gen2
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-          Simulação              Hardware
-           Gazebo                Laboratório
-              │                     │
-              ▼                     ▼
-          ROS Noetic             ROS Noetic
-              │                     │
-              ├──────────┬──────────┤
-              │          │          │
-              ▼          ▼          ▼
-             FK         IK        FK / IK
-              │          │          │
-              └──────────┴──────────┘
-                         │
-                         ▼
-                  Validação dos
-                resultados cinemáticos
+.
+├── src/
+│   ├── parameters.py       # Parâmetros geométricos (D1..D6, aa, d4b..d6b)
+│   └── dh_classic.py       # Implementação da matriz DH (sem T_base_to_0)
+│
+├── tests/
+│   ├── fk/
+│   │   ├── fk_urdf_vs_tf.py  # Validação via URDF
+│   │   └── fk_dh_vs_tf.py    # Validação via DH (principal)
+│   │
+│   └── ik/
+│       ├── ik_kdl_vs_fk.py   # Validação da IK no Gazebo
+│       └── ik_real_test.py   # Validação da IK no hardware
+│
+└── jaco_sim/               # Pacote ROS (usado apenas na branch develop)
 ```
 
-## Requisitos
+### Principais diferenças desta branch
+*   **`src/dh_classic.py`:** A função `forward_kinematics_full` retorna a matriz clássica **sem** a matriz de correção `T_base_to_0` (pois para o punho curvo, a base do DH já coincide com o `link_base` do ROS).
+*   **Leitura de tópicos:** Os scripts leem o tópico `/j2n6s300_driver/out/joint_state` (driver do hardware) e não `/j2n6s300/joint_states` (simulação).
 
-O projeto utiliza:
+---
 
-- **ROS Noetic**
-- **Gazebo**
-- **Python 3**
-- **KDL**
-- **Kinova Jaco Gen2**
-- **Docker** para o ambiente de simulação
-- **RealSense** para a câmera da simulação
+## Solução de Problemas Comuns no Lab
+
+*   **Erro `KinovaCommException` (1015):** O robô está desligado, o cabo USB está solto ou a regra `udev` não foi aplicada. Verifique com `lsusb` se o dispositivo Kinova aparece.
+*   **Erro `timeout exceeded`:** O script está procurando o tópico no lugar errado. Confirme se o driver (`roslaunch kinova_bringup...`) está rodando no outro terminal.
+*   **Erro `Permission denied` (Linux):** O script tenta acessar o hardware sem permissão. Reaplique a regra `udev` e reconecte o cabo USB.
