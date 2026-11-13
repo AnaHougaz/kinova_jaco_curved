@@ -1,387 +1,188 @@
-# Projeto Jaco 
 
-| Trecho | Significado |
-|:---|:---|
-| `j2` | Jaco, geração 2 (Gen2) |
-| `s` ou `n` | Punho **s**férico ou **n**ão esférico |
-| `6` | 6 graus de liberdade |
-| `s` | Versão *Service* (existe também a versão *Assistive*) |
-| `300` | Gripper de 3 dedos |
+# Projeto Jaco - Validação Cinemática e Simulação
 
-### Estamos usando o ```j2n6s300```
+Este repositório contém a implementação e validação da cinemática direta (FK) e inversa (IK) do robô Kinova Jaco Gen2, em ambiente simulado (Gazebo/Docker) e no hardware real.
 
-### Pose HOME ```[0.0, 2.9, 1.3, -2.07, 1.4, 0.0]```
+## Sumário
+- [Resultados Obtidos](#resultados-obtidos)
+- [Estrutura de Branches](#estrutura-de-branches)
+- [Rotina 1: Notebook (Simulação via Docker)](#rotina-1-notebook-simulação-via-docker)
+- [Rotina 2: Laboratório (Hardware Real)](#rotina-2-laboratório-hardware-real)
+- [Solução de Problemas (Troubleshooting)](#solução-de-problemas-troubleshooting)
 
-## Rodar o Gazebo
+---
 
-```bash 
+## Resultados Obtidos
+
+| Configuração | Modelo | Erro FK | Erro IK |
+|---|---|---|---|
+| Simulação | `j2s6s300` (esférico) | 0.085 mm | 0.070 mm |
+| Simulação | `j2n6s300` (curvo) | 0.070 mm | 0.067 mm |
+| Hardware | `j2n6s300` (curvo) | 0.076 mm | 0.076 mm |
+
+---
+
+## Estrutura de Branches
+
+O projeto foi dividido para manter a organização entre o que roda no simulador e o que roda no robô real.
+
+*   **Repositório `kinova_jaco`:** Versão antiga com o modelo esférico (`j2s6s300`), usado como base inicial por causa do artigo de referência (Pieper).
+*   **Repositório `kinova_jaco_curved`:** Versão atual com o modelo do laboratório (`j2n6s300`).
+    *   **Branch `develop`:** Use esta branch para **Simulação** no Gazebo.
+    *   **Branch `hardware-validation`:** Use esta branch para **Hardware Real** (scripts adaptados para ler os dados do robô físico).
+
+---
+
+## Rotina 1: Notebook (Simulação via Docker)
+
+**Atenção:** O nome do container atual é `kinova_hardware` e ele monta a pasta do repositório curvo (`~/projects/LaR/kinova_jaco_curved`).
+
+### 1. Iniciar o Container
+No terminal do seu computador (Host), rode:
+```bash
+# Dar permissão para interface gráfica
+xhost +local:docker
+
+# Iniciar o container já criado (se for a primeira vez, veja o Troubleshooting)
+docker start -ai kinova_hardware
+```
+
+### 2. Abrir o Gazebo
+Dentro do container, execute na ordem exata:
+```bash
+# 1. Vá para a raiz do workspace
 cd /root/catkin_ws
+
+# 2. Compile (necessário se alterou arquivos xacro/launch)
 catkin_make
+
+# 3. Carregue o sistema ROS PRIMEIRO
+source /opt/ros/noetic/setup.bash
+
+# 4. Carregue o workspace DEPOIS
 source devel/setup.bash
+
+# 5. Rode o Gazebo
 roslaunch jaco_sim jaco_realsense.launch
 ```
-## Rodar a camera
 
-```bash 
+### 3. Ver a Câmera (Opcional)
+Abra uma **nova aba** no seu notebook, entre no container (`docker exec -it kinova_hardware bash`) e rode:
+```bash
 source /opt/ros/noetic/setup.bash
 source /root/catkin_ws/devel/setup.bash
-rostopic list | grep camera
-```
-```bash 
 rqt_image_view
 ```
+*(Selecione o tópico `/camera/color/image_raw` na janela).*
 
-## 1. Docker
-
-O ROS Noetic exige Ubuntu 20.04, mas o host roda Ubuntu 26.04. Em vez de
-fazer dual-boot ou downgrade, isolamos o ROS Noetic dentro de um
-container Docker — o host nunca é modificado, e drivers gráficos
-problemáticos (GPU híbrida Intel + NVIDIA) ficam isolados também.
-
-## 2. Instalação do ambiente (feita uma única vez)
-
+### 4. Rodar os Testes de Simulação
+Com o Gazebo aberto, abra uma **nova aba** no terminal, entre no container e rode:
 ```bash
-sudo apt update
+docker exec -it kinova_hardware bash
+
+cd /root/catkin_ws
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+cd src/my_workspace
+
+# Teste de FK
+python3 tests/fk/fk_dh_vs_tf.py
+
+# Teste de IK
+python3 tests/ik/ik_kdl_vs_fk.py
 ```
 
+---
+
+## Rotina 2: Laboratório (Hardware Real)
+
+**Atenção:** No laboratório, o ROS roda **nativo** (sem Docker). O modelo é o `j2n6s300`. Use a branch `hardware-validation`.
+
+### 1. Preparar o Robô (Primeira vez)
+Ligue o robô e conecte o cabo USB.
 ```bash
-sudo apt install nvidia-driver-libs:i386
+# Criar regra de permissão para o USB do robô
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="22cd", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kinova.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# Verificar se o Linux está vendo o robô (deve aparecer Kinova)
+lsusb
 ```
 
-### 2.1. Instalar o Docker Engine
-
+### 2. Configurar a Rede do ROS (Terminal do Lab)
+O ROS precisa saber quem é o "mestre".
 ```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker $USER
+# Definir localhost como mestre e o IP do PC do lab
+export ROS_MASTER_URI=http://localhost:11311
+export ROS_HOSTNAME=192.168.13.100
 ```
-(fazer logout/login depois)
 
-Se aparecer erro de dpkg travado durante instalação de outros pacotes:
+### 3. Iniciar o Driver do Robô (Terminal 1)
 ```bash
-sudo dpkg --configure -a
-sudo apt-get update
+source ~/jaco_ws/devel/setup.bash
+roslaunch kinova_bringup kinova_robot.launch kinova_robotType:=j2n6s300
 ```
+*(Deixe este terminal aberto. Você deve ouvir o robô fazendo um barulho de inicialização).*
 
-### 2.2. Estrutura de pastas
-
-```
-~/projects/LaR/jaco/          <- pasta do projeto (montada como volume no container)
-├── Dockerfile
-├── README.md                 <- este arquivo
-├── fk_ik_jaco.py              <- script de FK/IK
-└── (dentro do container, aparece em /root/catkin_ws/src/my_workspace)
-```
-
-### 2.3. Dockerfile
-
-```dockerfile
-FROM osrf/ros:noetic-desktop-full
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y \
-    git \
-    python3-catkin-tools \
-    python3-rosdep \
-    python3-pip \
-    ros-noetic-moveit \
-    ros-noetic-moveit-visual-tools \
-    ros-noetic-gazebo-ros-pkgs \
-    ros-noetic-gazebo-ros-control \
-    ros-noetic-ros-controllers \
-    ros-noetic-joint-state-controller \
-    ros-noetic-effort-controllers \
-    ros-noetic-position-controllers \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /root/catkin_ws/src
-WORKDIR /root/catkin_ws/src
-RUN git clone https://github.com/Kinovarobotics/kinova-ros.git
-WORKDIR /root/catkin_ws
-
-RUN /bin/bash -c "source /opt/ros/noetic/setup.bash && \
-    rosdep update && \
-    rosdep install --from-paths src --ignore-src -r -y"
-
-RUN /bin/bash -c "source /opt/ros/noetic/setup.bash && catkin_make"
-
-RUN echo "source /opt/ros/noetic/setup.bash" >> /root/.bashrc && \
-    echo "source /root/catkin_ws/devel/setup.bash" >> /root/.bashrc
-
-CMD ["bash"]
-```
-
-### 2.4. Build da imagem (uma vez)
-
+### 4. Verificar o Tópico (Terminal 2 - Opcional)
 ```bash
-cd ~/projects/LaR/jaco
-docker build -t kinova-ros-noetic .
+source ~/jaco_ws/devel/setup.bash
+rostopic list | grep -i joint
+# O tópico correto é: /j2n6s300_driver/out/joint_state
 ```
 
-### 2.5. Primeira execução do container
+### 5. Rodar os Testes no Robô (Terminal 3)
+Navegue até a pasta onde você baixou os scripts (ex: `~/anahougaz`) e rode:
+```bash
+source ~/jaco_ws/devel/setup.bash
 
+# Validar FK no hardware
+python3 tests/fk/fk_dh_vs_tf.py
+
+# Validar IK (Mover o robô - Cuidado!)
+python3 tests/ik/ik_real_test.py
+```
+⚠️ **Atenção:** Tenha certeza que o professor/técnico está com o botão de emergência em mãos antes de rodar o `ik_real_test.py`.
+
+---
+
+## Solução de Problemas (Troubleshooting)
+
+### Como recriar o container no notebook do zero (se der erro):
+Se você precisar criar o container `kinova_hardware` de novo:
 ```bash
 xhost +local:docker
-```
-
-```bash
-docker rm kinova_dev
-```
-
-```bash
 docker run -it \
-  --name kinova_dev \
+  --name kinova_hardware \
   --env="DISPLAY=$DISPLAY" \
   --env="QT_X11_NO_MITSHM=1" \
   --env="LIBGL_ALWAYS_SOFTWARE=1" \
   --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
-  --volume="$HOME/projects/LaR/jaco:/root/catkin_ws/src/my_workspace" \
+  --volume="$HOME/projects/LaR/kinova_jaco_curved:/root/catkin_ws/src/my_workspace" \
   --device=/dev/dri:/dev/dri \
   --network host \
   kinova-ros-noetic
 ```
 
-Notas sobre as flags:
-- `DISPLAY` + volume do `/tmp/.X11-unix` → permite que janelas gráficas
-  (Gazebo, RViz) do container apareçam na tela do host, via X11.
-- `LIBGL_ALWAYS_SOFTWARE=1` + `--device=/dev/dri` → renderização 3D via
-  CPU (Mesa/llvmpipe) em vez da GPU, necessário porque a GPU híbrida
-  (Intel + NVIDIA RTX 2050) causava `Segmentation fault` no Gazebo.
-- `--volume="$HOME/projects/LaR/jaco:..."` → tudo que salvamos dentro
-  dessa pasta no container sobrevive no disco real do host.
+### Erro `Multiple packages found` (jaco_sim):
+Você montou a pasta do repositório antigo e do novo ao mesmo tempo. Feche e recrie o container montando **apenas** a pasta correta (`kinova_jaco_curved`).
 
-## 3. Rotina diária (depois que o container já existe)
-
-Não repita o `docker build` nem o `docker run` completo depois da
-primeira vez — isso recria tudo do zero. Use:
-
+### Erro `Permission denied` ao salvar no VS Code:
+O Docker criou arquivos como `root`. No terminal do seu notebook (fora do Docker):
 ```bash
-xhost +local:docker
+sudo chown -R $USER:$USER ~/projects/LaR/kinova_jaco_curved/
 ```
 
-```bash
-docker start -ai kinova_dev
-```
-
-Isso religa o mesmo container, com tudo que foi instalado nele preservado.
-
-### 3.1. Abrir o Gazebo (simulação física do Jaco)
-
-Dentro do container:
-```bash
-roslaunch kinova_gazebo robot_launch.launch kinova_robotType:=j2s6s300
-```
-
-> Usamos `j2s6s300` (punho **esférico**), não `j2n6s300`, porque o
-> algoritmo de IK do artigo (Pieper) só é válido para punho esférico.
-
-### 3.2. Abrir o MoveIt + RViz (planejamento de movimento)
-
-Em um **segundo terminal**:
-```bash
-docker exec -it kinova_dev bash
-roslaunch j2s6s300_moveit_config j2s6s300_gazebo_demo.launch
-```
-
-# Ativando o venv
-``` bash
-source .venv/bin/activate
-```
-
-# Executando scripts Python dentro do Docker
-
-### 1. Acessar o container Docker
-
-Após entrar no container, o terminal apresentará um prompt semelhante a:
-
-```bash
-root@asusbook:~/catkin_ws#
-```
-
-### 2. Acessar o diretório do projeto
-
-```bash
-cd /root/catkin_ws/src/my_workspace
-```
-
-### 3. Carregar o ambiente ROS Noetic
-
-```bash
-source /opt/ros/noetic/setup.bash
-```
-
-### 4. Executar o script Python
-
-```bash
-python3 nome_do_script.py
-```
-
-## Instalando e verificando o ```kdl_parser_py```no Docker
-
-### 1. Atualizar a lista de pacotes
-
-Dentro do container Docker, execute:
-
+### Erro `resource not found: realsense2_description`:
+O container novo não tem o pacote da câmera instalado. Rode dentro do container:
 ```bash
 apt-get update
+apt-get install -y ros-noetic-realsense2-description
 ```
 
-### 2. Instalar o pacote ROS Noetic
-
+### Erro `No module named 'kdl_parser_py'`:
+Rode dentro do container:
 ```bash
 apt-get install -y ros-noetic-kdl-parser-py
 ```
-
-### 3. Verificar a instalação
-
-Execute o comando abaixo para verificar se o módulo Python pode ser importado:
-
-```bash
-python3 -c "from kdl_parser_py.urdf import treeFromUrdfModel; print('kdl_parser_py OK')"
-```
-
-Se a instalação estiver correta, o terminal deverá apresentar:
-
-```text
-kdl_parser_py OK
-```
-
-
-# Configuração do RealSense no Gazebo e edição do jaco_sim pelo VS Code
-
-## 1. Instalação das dependências do RealSense
-
-Inicialmente, tentei instalar os pacotes `realsense2-description` e `realsense2-gazebo`:
-
-```bash
-apt-get install -y ros-noetic-realsense2-description ros-noetic-realsense2-gazebo
-```
-
-Entretanto, ocorreu um erro durante a instalação. Como alternativa, atualizei a lista de pacotes:
-
-```bash
-apt-get update
-```
-
-Em seguida, instalei os pacotes disponíveis necessários:
-
-```bash
-apt-get install -y ros-noetic-realsense2-description ros-noetic-realsense2-camera
-```
-
-## 2. Instalação do plugin RealSense para Gazebo
-
-Como o plugin necessário não foi instalado pelo comando anterior, foi necessário clonar o repositório com a implementação adaptada para ROS Noetic.
-
-**2.1. Acessar o diretório de código-fonte do workspace:**
-
-```bash
-cd /root/catkin_ws/src/
-```
-
-**2.2. Clonar o repositório:**
-
-```bash
-git clone https://github.com/SgtVincent/realsense_gazebo_plugin.git
-```
-
-**2.3. Voltar para a raiz do workspace:**
-
-```bash
-cd /root/catkin_ws/
-```
-
-**2.4. Compilar o workspace:**
-
-```bash
-catkin_make
-```
-
-## 3. Carregar os ambientes ROS
-
-Após a compilação, é necessário carregar os ambientes na seguinte ordem:
-
-**3.1. Carregar o ambiente ROS Noetic:**
-
-```bash
-source /opt/ros/noetic/setup.bash
-```
-
-**3.2. Carregar o ambiente do workspace:**
-
-```bash
-source devel/setup.bash
-```
-
-**3.3. Iniciar a simulação do Jaco com a câmera RealSense:**
-
-```bash
-roslaunch jaco_sim jaco_realsense.launch
-```
-
-## 4. Mover a pasta jaco_sim para edição no VS Code
-
-Para facilitar a edição dos arquivos pelo VS Code, foi necessário mover a pasta `jaco_sim` para dentro de `my_workspace`.
-
-**4.1. No terminal do container Docker, acessar a raiz do workspace:**
-
-```bash
-cd /root/catkin_ws/
-```
-
-**4.2. Mover a pasta:**
-
-```bash
-mv /root/catkin_ws/src/jaco_sim /root/catkin_ws/src/my_workspace/
-```
-
-Com isso, a pasta `jaco_sim` passa a ficar disponível dentro do diretório `my_workspace`, utilizado para acessar e editar os arquivos pelo VS Code.
-
-## 5. Restaurar a pasta jaco_sim para execução no Docker
-
-Após finalizar as alterações no VS Code, é necessário devolver a pasta `jaco_sim` ao diretório `src` do workspace ROS.
-
-**5.1. No terminal do container Docker, executar:**
-
-```bash
-mv /root/catkin_ws/src/my_workspace/jaco_sim /root/catkin_ws/src/
-```
-
-## 6. Reexecutar a simulação após alterações no VS Code
-
-Sempre que modificar algum arquivo:
-
-1. Salve as alterações no VS Code com `Ctrl + S`.
-2. Encerre a simulação do Gazebo com `Ctrl + C` no terminal em que ela está sendo executada.
-3. Execute novamente os comandos abaixo, respeitando a ordem.
-
-**6.1. Carregar o ambiente ROS Noetic:**
-
-```bash
-source /opt/ros/noetic/setup.bash
-```
-
-**6.2. Carregar o ambiente do workspace:**
-
-```bash
-source devel/setup.bash
-```
-
-**6.3. Iniciar novamente a simulação:**
-
-```bash
-roslaunch jaco_sim jaco_realsense.launch
-```
-
-## 7. Corrigir permissões dos arquivos para edição no VS Code
-
-Como alguns arquivos foram criados pelo container Docker utilizando o usuário `root`, pode ocorrer um problema de permissão ao tentar editá-los pelo usuário do ASUSBook.
-
-Para corrigir isso, execute o comando abaixo no **terminal do ASUSBook (fora do Docker)**:
-
-```bash
-sudo chown -R $USER:$USER ~/projects/LaR/jaco/
-```
-
-
